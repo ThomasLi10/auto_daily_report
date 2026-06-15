@@ -1,0 +1,10 @@
+# local secrets — NEVER commit (CalDAV password / webhook signing secret)
+.feishu_caldav.json
+.feishu_webhook.json
+
+# python
+__pycache__/
+*.pyc
+
+# editor / os
+.DS_Store

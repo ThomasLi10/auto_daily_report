@@ -1,0 +1,4 @@
+{
+  "url": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx-xxxx-xxxx",
+  "secret": "optional-signing-secret-or-empty-string"
+}
