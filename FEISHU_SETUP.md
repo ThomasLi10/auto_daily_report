@@ -63,3 +63,29 @@ pip install requests icalendar recurring_ical_events
 所以 `gather_calendar.py` 用原始 `requests` 手写流程：PROPFIND 发现日历 → calendar-query 拿当天 href →
 calendar-multiget 批量取 ICS → 本地用 `recurring_ical_events` 展开 RRULE 并按当天本地时区筛选。
 重复性日程（如每周会）服务端只回主事件(带 RRULE)，必须本地展开。
+
+---
+
+# 投递到飞书（webhook）+ 粘贴到文档
+
+报告通过 `send_feishu.py` 投递，默认走**群自定义机器人 webhook**（没配则回退到 1:1 应用 DM）。
+
+一次性配 webhook：
+
+```bash
+python3 ~/my/daily_report/send_feishu.py --set-webhook
+# 粘 2 行：第1行 webhook URL、第2行 签名密钥（没有就留空）
+```
+
+存到 `.feishu_webhook.json`（权限 600，gitignored）。也可用环境变量 `FEISHU_WEBHOOK_URL` / `FEISHU_WEBHOOK_SECRET`。
+报告以**蓝色卡片**发出（lark_md 渲染：加粗 Topic、`code`、每条 bullet 独立一行）。
+
+## 粘贴到飞书云文档（实测 + 调研结论）
+
+飞书「复制消息 → 粘到云文档」无法保证完全保真，要点：
+
+- 在**飞书桌面客户端**里复制卡片再粘贴 → 保留**加粗 + 分行 + `code`**；**网页版**粘贴会**掉加粗**。
+- 要 100% 完整：把归档的 `.md`（`/tq/scratch/thomas/daily_report_log/*.md`）**拖进飞书云空间导入**，自动转成带完整格式（加粗/列表/代码）的在线文档。
+- 飞书**没有**「一键粘贴为 Markdown」快捷键；markdown 只在「逐字输入时自动转」或「文件导入」时才转换。
+- 卡片用 lark_md **渲染**（不是源码/代码块/纯文本）：源码形态飞书粘贴会吃掉 `**`；纯文本粘贴丢全部格式；这些都试过，渲染卡片在桌面端粘贴最好。
+- 别改用 `post`/富文本消息：自定义机器人不支持 post 的加粗，也没有原生列表。

@@ -80,9 +80,11 @@ work bullets (`- **Topic**: …`, max 8), then a final calendar bullet when ther
 `- 📅 2 interviews; Meeting with Yutong Zou` (interviews collapsed to a count; meetings as
 "Meeting with <people>" with names romanized to pinyin). See `SKILL.md` for the exact rules.
 
-Delivered to Feishu as a blue-header card (`Daily Report — <date>`); `send_feishu.py` gives
-every line a markdown hard line break (two trailing spaces) so the bullets **and bold** survive
-copy-paste into a Feishu doc (a plain newline collapses into one paragraph on paste).
+Delivered to Feishu as a blue-header interactive card (`Daily Report — <date>`) with the
+markdown rendered — bold Topics, inline `code`, one bullet per line. To paste it into a Feishu
+Doc with formatting intact, copy from the Feishu **desktop client** (the web client drops bold
+on paste); for a 100%-faithful copy, import the archived `.md` into Feishu Drive (drag it into
+云空间). See `FEISHU_SETUP.md` for delivery setup + paste tips.
 
 ## Setup on a fresh checkout
 
