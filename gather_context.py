@@ -7,11 +7,20 @@ Collects two signals and prints them as a readable context dump:
 
 The caller (Claude, via the daily-report skill) synthesizes this into bullets.
 
+Sources: by default we harvest both the current user (thomas, read directly) and
+any "extra users" — service/bot accounts whose home is 0700 but whom thomas may
+read via passwordless `sudo -u <user>` (see DEFAULT_EXTRA_USERS). This is how
+work done under the `tqalpha` account (e.g. report_hub) shows up in the report.
+Extra-user access degrades gracefully: if sudo is unavailable the source is
+skipped with a note, never a crash.
+
 Usage:
     python3 gather_context.py 2026-06-01                 # single day
     python3 gather_context.py 2026-06-01 2026-06-03      # inclusive date range
-    python3 gather_context.py 2026-06-01 --repos /home/thomas/code/tq /home/thomas/code/alphahub
+    python3 gather_context.py 2026-06-01 --repos /home/thomas/code/tq ...
     python3 gather_context.py 2026-06-01 --projects-dir /home/thomas/.claude/projects
+    python3 gather_context.py 2026-06-01 --extra-users tqalpha bob   # override extras
+    python3 gather_context.py 2026-06-01 --extra-users               # no extras (thomas only)
 """
 
 import argparse
@@ -23,6 +32,10 @@ from datetime import datetime, timedelta
 
 DEFAULT_CODE_GLOBS = ["/home/thomas/code/*"]
 DEFAULT_PROJECTS_DIR = "/home/thomas/.claude/projects"
+# Service/bot accounts to fold in by default. Their $HOME is 0700, so every read
+# (git + session files) goes through `sudo -n -u <user>`; paths are derived as
+# /home/<user>/code/* and /home/<user>/.claude/projects.
+DEFAULT_EXTRA_USERS = ["tqalpha"]
 MAX_PROMPT_CHARS = 400
 
 
@@ -44,9 +57,50 @@ def parse_ts(ts):
 
 
 # ---------------------------------------------------------------------------
+# Access primitives (direct for the current user, sudo -u for extra users)
+# ---------------------------------------------------------------------------
+def _sudo_prefix(as_user):
+    return ["sudo", "-n", "-u", as_user] if as_user else []
+
+
+def sudo_available(as_user):
+    """True if we can run commands as `as_user` non-interactively (None = self)."""
+    if not as_user:
+        return True
+    try:
+        r = subprocess.run(_sudo_prefix(as_user) + ["true"],
+                           capture_output=True, text=True, timeout=15)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _run(argv, as_user=None):
+    """Run argv (optionally via sudo -u); return stdout as text ('' on failure)."""
+    try:
+        r = subprocess.run(_sudo_prefix(as_user) + argv,
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        return r.stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+# ---------------------------------------------------------------------------
 # Git
 # ---------------------------------------------------------------------------
-def discover_repos(repo_globs):
+def discover_repos(repo_globs, as_user=None):
+    """Dirs under the globs that are git repos. Globs expand as `as_user` (their FS)."""
+    if as_user:
+        # The current user can't even stat a 0700 home, so glob + isdir must run
+        # as the target user.
+        script = " ; ".join(
+            f'for d in {g}; do [ -d "$d/.git" ] && echo "$d"; done'
+            for g in repo_globs
+        )
+        out = _run(["bash", "-c", script], as_user=as_user)
+        repos = [os.path.normpath(ln.strip()) for ln in out.splitlines() if ln.strip()]
+        return sorted(set(repos))
     repos = []
     for pattern in repo_globs:
         for path in glob.glob(pattern):
@@ -55,21 +109,18 @@ def discover_repos(repo_globs):
     return sorted(set(repos))
 
 
-def git_commits(repo, start_str, end_str, multiday):
+def git_commits(repo, start_str, end_str, multiday, as_user=None):
     """Commits authored by this repo's user.name within [start, end] (local), all branches."""
-    name = subprocess.run(
-        ["git", "-C", repo, "config", "user.name"],
-        capture_output=True, text=True,
-    ).stdout.strip()
-    args = [
+    name = _run(["git", "-C", repo, "config", "user.name"], as_user=as_user).strip()
+    git_args = [
         "git", "-C", repo, "log", "--all", "--no-merges",
         f"--since={start_str} 00:00:00", f"--until={end_str} 23:59:59",
         "--pretty=format:%ct\t%ad\t%h\t%s",  # %ct = commit epoch, for a correct chronological sort
         "--date=format:%m-%d %H:%M" if multiday else "--date=format:%H:%M",
     ]
     if name:
-        args.insert(4, f"--author={name}")
-    out = subprocess.run(args, capture_output=True, text=True).stdout.strip()
+        git_args.insert(4, f"--author={name}")  # right after "log"
+    out = _run(git_args, as_user=as_user).strip()
     if not out:
         return []
     rows = []
@@ -123,49 +174,71 @@ def extract_user_text(content):
     return " ".join(text.split())  # collapse whitespace
 
 
-def scan_session(path, start, end):
-    """Return dict of in-window activity for one session file, or None if none."""
+def list_session_paths(projects_dir, as_user=None):
+    """Top-level session jsonls under projects_dir (skips subagent transcripts)."""
+    pattern = os.path.join(projects_dir, "*", "*.jsonl")
+    if as_user:
+        paths = [ln.strip() for ln in
+                 _run(["bash", "-c", f'ls -1 {pattern} 2>/dev/null'], as_user=as_user).splitlines()
+                 if ln.strip()]
+    else:
+        paths = glob.glob(pattern)
+    return [p for p in paths if os.sep + "subagents" + os.sep not in p]
+
+
+def read_session_lines(path, as_user=None):
+    """Return the raw lines of a session file (via sudo cat for extra users)."""
+    if as_user:
+        return _run(["cat", path], as_user=as_user).splitlines()
+    try:
+        with open(path, errors="replace") as fh:
+            return fh.read().splitlines()
+    except OSError:
+        return []
+
+
+def scan_session(path, lines, start, end):
+    """Return dict of in-window activity for one session's lines, or None if none."""
     ai_title = None
     prompts, files = [], []
     cwd = branch = None
     has_window_activity = False
 
-    with open(path, errors="replace") as fh:
-        for line in fh:
-            try:
-                o = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            typ = o.get("type")
+    for line in lines:
+        try:
+            o = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        typ = o.get("type")
 
-            if typ == "ai-title":
-                ai_title = o.get("aiTitle") or ai_title
-                continue
+        if typ == "ai-title":
+            ai_title = o.get("aiTitle") or ai_title
+            continue
 
-            ts = parse_ts(o.get("timestamp"))
-            in_window = ts is not None and start <= ts < end
-            if not in_window:
-                continue
-            has_window_activity = True
-            cwd = o.get("cwd", cwd)
-            branch = o.get("gitBranch", branch)
-            msg = o.get("message", {})
+        ts = parse_ts(o.get("timestamp"))
+        in_window = ts is not None and start <= ts < end
+        if not in_window:
+            continue
+        has_window_activity = True
+        cwd = o.get("cwd", cwd)
+        branch = o.get("gitBranch", branch)
+        msg = o.get("message", {})
 
-            if typ == "user":
-                txt = extract_user_text(msg.get("content"))
-                if txt:
-                    if len(txt) > MAX_PROMPT_CHARS:
-                        txt = txt[:MAX_PROMPT_CHARS] + " …"
-                    if not prompts or prompts[-1] != txt:  # drop consecutive dups
-                        prompts.append(txt)
+        if typ == "user":
+            txt = extract_user_text(msg.get("content"))
+            if txt:
+                if len(txt) > MAX_PROMPT_CHARS:
+                    txt = txt[:MAX_PROMPT_CHARS] + " …"
+                if not prompts or prompts[-1] != txt:  # drop consecutive dups
+                    prompts.append(txt)
 
-            elif typ == "assistant":
-                for part in msg.get("content", []) if isinstance(msg.get("content"), list) else []:
-                    if isinstance(part, dict) and part.get("type") == "tool_use" \
-                            and part.get("name") in EDIT_TOOLS:
-                        fp = (part.get("input") or {}).get("file_path")
-                        if fp and fp not in files:
-                            files.append(fp)
+        elif typ == "assistant":
+            for part in msg.get("content", []) if isinstance(msg.get("content"), list) else []:
+                if isinstance(part, dict) and part.get("type") == "tool_use" \
+                        and part.get("name") in EDIT_TOOLS:
+                    fp = (part.get("input") or {}).get("file_path")
+                    if fp and fp not in files:
+                        files.append(fp)
 
     if not has_window_activity:
         return None
@@ -176,18 +249,45 @@ def scan_session(path, start, end):
         "branch": branch,
         "prompts": prompts,
         "files": files,
+        "as_user": None,  # filled in by caller
     }
 
 
-def scan_sessions(projects_dir, start, end):
+def scan_sessions(projects_dir, start, end, as_user=None):
     out = []
-    for path in glob.glob(os.path.join(projects_dir, "*", "*.jsonl")):
-        if os.sep + "subagents" + os.sep in path:
-            continue
-        info = scan_session(path, start, end)
+    for path in list_session_paths(projects_dir, as_user):
+        info = scan_session(path, read_session_lines(path, as_user), start, end)
         if info and (info["prompts"] or info["files"] or info["ai_title"]):
+            info["as_user"] = as_user
             out.append(info)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+def build_sources(args):
+    """Ordered list of {as_user, repos, projects_dir} to harvest. Primary first."""
+    primary = {
+        "as_user": None,
+        "repos": args.repos if args.repos is not None
+        else discover_repos(DEFAULT_CODE_GLOBS),
+        "projects_dir": args.projects_dir,
+        "available": True,
+    }
+    sources = [primary]
+
+    extra = DEFAULT_EXTRA_USERS if args.extra_users is None else args.extra_users
+    for user in extra:
+        home = f"/home/{user}"
+        ok = sudo_available(user)
+        sources.append({
+            "as_user": user,
+            "repos": discover_repos([f"{home}/code/*"], as_user=user) if ok else [],
+            "projects_dir": f"{home}/.claude/projects",
+            "available": ok,
+        })
+    return sources
 
 
 # ---------------------------------------------------------------------------
@@ -209,8 +309,13 @@ def main():
     ap.add_argument("start", help="local date YYYY-MM-DD (range start)")
     ap.add_argument("end", nargs="?", help="optional inclusive range end YYYY-MM-DD")
     ap.add_argument("--repos", nargs="*", default=None,
-                    help="explicit repo paths (default: auto-discover under code dirs)")
+                    help="explicit repo paths for the primary user "
+                         "(default: auto-discover under code dirs)")
     ap.add_argument("--projects-dir", default=DEFAULT_PROJECTS_DIR)
+    ap.add_argument("--extra-users", nargs="*", default=None,
+                    help="service/bot accounts to fold in via sudo -u "
+                         f"(default: {' '.join(DEFAULT_EXTRA_USERS)}; pass with no "
+                         "names to disable)")
     args = ap.parse_args()
 
     end_str = args.end or args.start
@@ -220,29 +325,42 @@ def main():
     except ValueError:
         raise SystemExit(f"bad date(s) {args.start!r}..{end_str!r}; expected YYYY-MM-DD")
 
-    repos = args.repos if args.repos else discover_repos(DEFAULT_CODE_GLOBS)
+    sources = build_sources(args)
 
     label = f"{args.start} .. {end_str}" if multiday else args.start
     print(f"# Daily-report material for {label} (local time)\n")
 
-    # --- git ---
+    # note any extra source we wanted but can't reach
+    for src in sources:
+        if src["as_user"] and not src["available"]:
+            print(f"# NOTE: source '{src['as_user']}' unavailable "
+                  f"(sudo -n -u {src['as_user']} failed) — skipped.\n")
+
+    # --- git (global hash de-dup: shared clones surface the same commit) ---
     print("=" * 70)
     print("GIT COMMITS (your commits, all branches)")
     print("=" * 70)
     any_commit = False
-    for repo in repos:
-        commits = git_commits(repo, args.start, end_str, multiday)
-        if not commits:
-            continue
-        any_commit = True
-        print(f"\n## {shorten_home(repo)}")
-        for t, h, subj in commits:
-            print(f"  {t}  {h}  {subj}")
+    seen_hashes = set()
+    for src in sources:
+        for repo in src["repos"]:
+            commits = git_commits(repo, args.start, end_str, multiday, src["as_user"])
+            commits = [c for c in commits if c[1] not in seen_hashes]  # c = (time, hash, subj)
+            if not commits:
+                continue
+            any_commit = True
+            seen_hashes.update(c[1] for c in commits)
+            tag = f"  [{src['as_user']}]" if src["as_user"] else ""
+            print(f"\n## {shorten_home(repo)}{tag}")
+            for t, h, subj in commits:
+                print(f"  {t}  {h}  {subj}")
     if not any_commit:
         print("  (none)")
 
     # --- sessions ---
-    sessions = scan_sessions(args.projects_dir, start, end)
+    sessions = []
+    for src in sources:
+        sessions.extend(scan_sessions(src["projects_dir"], start, end, src["as_user"]))
     sessions.sort(key=lambda s: (s["ai_title"] or "z").lower())
     print("\n" + "=" * 70)
     print(f"CLAUDE CODE SESSIONS ({len(sessions)} with activity)")
@@ -250,7 +368,8 @@ def main():
     if not sessions:
         print("  (none)")
     for s in sessions:
-        print(f"\n## {s['ai_title'] or '(untitled session)'}")
+        tag = f"  [{s['as_user']}]" if s["as_user"] else ""
+        print(f"\n## {s['ai_title'] or '(untitled session)'}{tag}")
         loc = shorten_home(s["cwd"] or "")
         if loc:
             print(f"   cwd: {loc}" + (f"  branch: {s['branch']}" if s["branch"] else ""))

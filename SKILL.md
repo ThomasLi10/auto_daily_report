@@ -90,6 +90,7 @@ python3 /home/thomas/my/daily_report/gather_calendar.py <YYYY-MM-DD>
 
 ## 注意
 
+- **多用户来源**：`gather_context.py` 默认除 `thomas` 外还会通过 `sudo -n -u <user>` 把**服务账号**（默认 `tqalpha`）的 git 提交（`/home/<user>/code/*`）和 Claude 会话（`/home/<user>/.claude/projects`）一并纳入——`tqalpha` 下用 claude 做的 `report_hub` 等工作就是这样进来的。同一 commit 在两个 clone 里只算一次（按 hash 去重）；sudo 不可用时该来源跳过并打一行 `# NOTE`，不报错。会话/提交会带 `[tqalpha]` 标签，归类时把它和 `thomas` 的同主题工作**合并**，别因账号不同拆成两条。要改/禁用：`--extra-users a b` / 裸 `--extra-users`。
 - **自动化（cron）行为**：`run_daily_report.sh` 无参数时按**中国工作日**门控（`workday.py`，含调休）——工作日才综合，且覆盖「上次报告之后 → 昨天」整段（假期/周末后第一个工作日合并成一份）；非工作日发一条 rest-day 占位指向下个工作日。状态游标 `last_covered` 仅在成功发送后推进。交互式 `/daily-report` **不**受此门控，按用户给的日期/区间直接生成。
 - 会话时间戳是 UTC，脚本已自动转换成本地时区再按日期过滤；git 的 `--since/--until` 用本地时间。两者口径一致。
 - 一天可能有十几个会话，prompt 很多——**抓主题，不要逐条复述**。被中断的 prompt、纯粘贴的终端输出只作背景参考。

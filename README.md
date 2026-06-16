@@ -7,6 +7,14 @@ to Feishu:
 2. **Claude Code sessions** — that day's session titles, prompts, and edited files
 3. **Feishu calendar** — that day's meetings/interviews (via CalDAV)
 
+Sources 1 & 2 are harvested for **`thomas` plus any "extra users"** — service/bot
+accounts (default: `tqalpha`) whose work should roll up into the same report. Their
+`$HOME` is `0700`, so `gather_context.py` reads them via passwordless `sudo -n -u <user>`
+(git repos under `/home/<user>/code/*` and sessions under `/home/<user>/.claude/projects`).
+Commits shared between clones are de-duplicated by hash; an unreachable extra user is
+skipped with a note (never a crash). Override with `--extra-users a b`; disable with a bare
+`--extra-users`. This is why work done under `tqalpha` (e.g. `report_hub`) shows up.
+
 A small LLM pass (Claude headless) synthesizes the material into themed bullets.
 
 ## Layout
