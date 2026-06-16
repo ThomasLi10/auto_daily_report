@@ -165,6 +165,11 @@ Format (follow exactly):
   "what shipped" and the session prompts for "why / what was debugged". Merge multiple
   commits+sessions on one theme into a single bullet. Each: "- **Topic**: …".
   Normally 3–5 bullets, at most 8.
+- COVERAGE OVER DETAIL: when there's a lot of work, prioritize BREADTH — make sure every
+  major area is represented; do NOT let one big theme crowd out the others, and never drop
+  a real work theme just to hit 3–5 (expand toward 8 when there genuinely are more areas).
+  For a content-heavy area, summarize COARSELY: capture the gist, MERGE similar/adjacent
+  points into one phrase (just mention them), and don't enumerate every individual change.
 - BE CONCISE: short phrases, not long multi-clause sentences. One main bullet ≈ 1–2 lines.
 - DON'T cite specific file paths / scratch dirs / throwaway script names or numbers
   (e.g. "scripts/scratch/.../foo.py", "scripts 15–23"); only mention them if truly key.
