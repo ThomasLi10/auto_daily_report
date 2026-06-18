@@ -2,6 +2,9 @@
 .feishu_caldav.json
 .feishu_webhook.json
 
+# local site config — NEVER commit (extra service accounts, OUT_DIR override)
+daily_report.local
+
 # python
 __pycache__/
 *.pyc

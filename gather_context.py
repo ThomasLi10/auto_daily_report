@@ -7,20 +7,20 @@ Collects two signals and prints them as a readable context dump:
 
 The caller (Claude, via the daily-report skill) synthesizes this into bullets.
 
-Sources: by default we harvest both the current user (thomas, read directly) and
-any "extra users" — service/bot accounts whose home is 0700 but whom thomas may
-read via passwordless `sudo -u <user>` (see DEFAULT_EXTRA_USERS). This is how
-work done under the `tqalpha` account (e.g. report_hub) shows up in the report.
+Sources: by default we harvest the current user (read directly). You can also fold
+in "extra users" — service/bot accounts whose home is 0700 but which the current
+user may read via passwordless `sudo -u <user>` (see DEFAULT_EXTRA_USERS). This is
+how work done under a service account (e.g. report_hub) can roll into the report.
 Extra-user access degrades gracefully: if sudo is unavailable the source is
 skipped with a note, never a crash.
 
 Usage:
     python3 gather_context.py 2026-06-01                 # single day
     python3 gather_context.py 2026-06-01 2026-06-03      # inclusive date range
-    python3 gather_context.py 2026-06-01 --repos /home/thomas/code/tq ...
-    python3 gather_context.py 2026-06-01 --projects-dir /home/thomas/.claude/projects
-    python3 gather_context.py 2026-06-01 --extra-users tqalpha bob   # override extras
-    python3 gather_context.py 2026-06-01 --extra-users               # no extras (thomas only)
+    python3 gather_context.py 2026-06-01 --repos ~/code/myrepo ...
+    python3 gather_context.py 2026-06-01 --projects-dir ~/.claude/projects
+    python3 gather_context.py 2026-06-01 --extra-users svc1 svc2     # fold in extras
+    python3 gather_context.py 2026-06-01 --extra-users               # no extras (current user only)
 """
 
 import argparse
@@ -30,12 +30,14 @@ import os
 import subprocess
 from datetime import datetime, timedelta
 
-DEFAULT_CODE_GLOBS = ["/home/thomas/code/*"]
-DEFAULT_PROJECTS_DIR = "/home/thomas/.claude/projects"
-# Service/bot accounts to fold in by default. Their $HOME is 0700, so every read
-# (git + session files) goes through `sudo -n -u <user>`; paths are derived as
-# /home/<user>/code/* and /home/<user>/.claude/projects.
-DEFAULT_EXTRA_USERS = ["tqalpha"]
+DEFAULT_CODE_GLOBS = [os.path.expanduser("~/code/*")]
+DEFAULT_PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
+# Service/bot accounts to fold in BESIDES the current user. Their $HOME is 0700, so
+# every read (git + session files) goes through `sudo -n -u <user>`; paths derive as
+# /home/<user>/code/* and /home/<user>/.claude/projects. None by default — set
+# DAILY_REPORT_EXTRA_USERS="acct1 acct2" (space-separated) to keep site-specific
+# account names out of the source, or override per-run with --extra-users.
+DEFAULT_EXTRA_USERS = os.environ.get("DAILY_REPORT_EXTRA_USERS", "").split()
 MAX_PROMPT_CHARS = 400
 
 
@@ -314,8 +316,8 @@ def main():
     ap.add_argument("--projects-dir", default=DEFAULT_PROJECTS_DIR)
     ap.add_argument("--extra-users", nargs="*", default=None,
                     help="service/bot accounts to fold in via sudo -u "
-                         f"(default: {' '.join(DEFAULT_EXTRA_USERS)}; pass with no "
-                         "names to disable)")
+                         f"(default: {' '.join(DEFAULT_EXTRA_USERS) or 'none'}; pass "
+                         "with no names to disable)")
     args = ap.parse_args()
 
     end_str = args.end or args.start

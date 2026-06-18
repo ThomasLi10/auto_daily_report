@@ -32,7 +32,7 @@ import urllib.request
 
 SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
 WEBHOOK_STORE = os.path.join(SKILL_DIR, ".feishu_webhook.json")
-OPENCLAW = "/home/thomas/.openclaw"
+OPENCLAW = os.path.expanduser("~/.openclaw")
 BASE = "https://open.feishu.cn"
 
 

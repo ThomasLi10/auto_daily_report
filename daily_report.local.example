@@ -1,0 +1,10 @@
+# Site-local config for daily_report. Copy to `daily_report.local` (gitignored) and edit.
+# Sourced by run_daily_report.sh — keep machine/account-specific values OUT of the repo.
+
+# Extra service/bot accounts whose work folds into the report (space-separated),
+# read via passwordless `sudo -n -u <user>`. Empty / unset = current user only.
+# DAILY_REPORT_EXTRA_USERS="svc-account-1 svc-account-2"
+
+# Where generated reports + log + cron cursor live.
+# Default: /tq/scratch/<current-user>/daily_report_log
+# OUT_DIR="/tq/scratch/$(id -un)/daily_report_log"

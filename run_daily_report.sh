@@ -15,8 +15,6 @@ set -euo pipefail
 
 # Code lives in the repo; generated reports + log live in scratch (NOT in the repo).
 SKILL_DIR="$HOME/my/daily_report"
-OUT_DIR="/tq/scratch/thomas/daily_report_log"
-LOG="$OUT_DIR/run_daily.log"
 PY="/3rd/anaconda3/bin/python3"
 CLAUDE="$HOME/.nvm/versions/node/v22.22.0/bin/claude"
 # cron has a bare PATH; make sure node (for claude) and basic tools are reachable
@@ -34,6 +32,14 @@ export HTTP_PROXY="${HTTP_PROXY:-$http_proxy}"
 # into this run it would be sent to api.anthropic.com and rejected with
 # "401 Invalid authentication credentials".
 unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL 2>/dev/null || true
+
+# Optional site-local config (gitignored): extra service accounts to fold in, OUT_DIR
+# override, etc. Keeps machine/account-specific values out of the repo. See the .example.
+[ -f "$SKILL_DIR/daily_report.local" ] && . "$SKILL_DIR/daily_report.local"
+export DAILY_REPORT_EXTRA_USERS="${DAILY_REPORT_EXTRA_USERS:-}"
+# Reports + log + cron cursor live in scratch under the current user (NOT in the repo).
+OUT_DIR="${OUT_DIR:-/tq/scratch/$(id -un)/daily_report_log}"
+LOG="$OUT_DIR/run_daily.log"
 
 mkdir -p "$OUT_DIR"
 STATE="$OUT_DIR/last_covered"  # cron cursor: last calendar date already reported
