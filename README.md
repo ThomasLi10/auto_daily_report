@@ -7,13 +7,14 @@ to Feishu:
 2. **Claude Code sessions** — that day's session titles, prompts, and edited files
 3. **Feishu calendar** — that day's meetings/interviews (via CalDAV)
 
-Sources 1 & 2 are harvested for **`thomas` plus any "extra users"** — service/bot
-accounts (default: `tqalpha`) whose work should roll up into the same report. Their
-`$HOME` is `0700`, so `gather_context.py` reads them via passwordless `sudo -n -u <user>`
+Sources 1 & 2 are harvested for **the current user plus any "extra users"** — service/bot
+accounts whose work should roll up into the same report. None are folded in by default; name
+them via the `DAILY_REPORT_EXTRA_USERS` env var (space-separated) or `--extra-users a b`.
+Their `$HOME` is `0700`, so `gather_context.py` reads them via passwordless `sudo -n -u <user>`
 (git repos under `/home/<user>/code/*` and sessions under `/home/<user>/.claude/projects`).
 Commits shared between clones are de-duplicated by hash; an unreachable extra user is
-skipped with a note (never a crash). Override with `--extra-users a b`; disable with a bare
-`--extra-users`. This is why work done under `tqalpha` (e.g. `report_hub`) shows up.
+skipped with a note (never a crash). Disable extras with a bare `--extra-users`. This is how
+work done under a service account (e.g. `report_hub`) rolls into the same report.
 
 A small LLM pass (Claude headless) synthesizes the material into themed bullets.
 
@@ -24,7 +25,7 @@ A small LLM pass (Claude headless) synthesizes the material into themed bullets.
 | `~/my/daily_report/` | this repo — all code + config |
 | `~/my/daily_report/holidays/` | cached China holiday/workday JSON (one file per year), auto-refreshed |
 | `~/.claude/skills/daily-report` | symlink → this repo, so `/daily-report` works as a skill |
-| `/tq/scratch/thomas/daily_report_log/` | generated reports + `run_daily.log` + `last_covered` cron cursor (NOT in repo) |
+| `/tq/scratch/<user>/daily_report_log/` | generated reports + `run_daily.log` + `last_covered` cron cursor (NOT in repo) |
 
 ## Files
 
@@ -37,6 +38,7 @@ A small LLM pass (Claude headless) synthesizes the material into themed bullets.
 - `SKILL.md` — the `/daily-report` skill definition (interactive use)
 - `FEISHU_SETUP.md` — calendar (CalDAV) + delivery setup
 - `.feishu_*.json` — **local secrets, gitignored** (see the `.example` files)
+- `daily_report.local` — **local site config, gitignored** (extra service accounts, `OUT_DIR` override; see the `.example`)
 
 ## Usage
 
@@ -56,7 +58,7 @@ Manual / scheduled:
 No systemd/cron natively on this box, so `cron` was installed and a job added:
 
 ```
-0 7 * * *  ~/my/daily_report/run_daily_report.sh >> /tq/scratch/thomas/daily_report_log/cron.log 2>&1
+0 7 * * *  ~/my/daily_report/run_daily_report.sh >> /tq/scratch/<user>/daily_report_log/cron.log 2>&1
 ```
 
 Runs every morning at 07:00. The cron run is **China-workday-aware** (incl. 调休 makeup
@@ -75,7 +77,7 @@ which pulls next year's calendar once the State Council publishes it; otherwise 
 offline. After a host reboot the cron daemon isn't auto-started (no systemd) — re-arm with
 `sudo service cron start`.
 
-**Cursor (`last_covered`).** Lives at `/tq/scratch/thomas/daily_report_log/last_covered` and
+**Cursor (`last_covered`).** Lives at `/tq/scratch/<user>/daily_report_log/last_covered` and
 holds the last date already reported. The next cron run covers `(last_covered, yesterday]`.
 Seed/reset it with `echo 2026-06-14 > .../last_covered`; **delete** it to re-bootstrap (next
 run then covers just yesterday). A corrupt/blank cursor self-heals to "cover yesterday".
@@ -101,6 +103,7 @@ pip install requests icalendar recurring_ical_events
 python3 fetch_holidays.py                               # seed holidays/ (this + next year)
 cp .feishu_caldav.json.example .feishu_caldav.json     # then fill in (or use --set-caldav)
 cp .feishu_webhook.json.example .feishu_webhook.json   # then fill in (or use --set-webhook)
+cp daily_report.local.example daily_report.local       # optional: extra service accounts / OUT_DIR
 ln -s ~/my/daily_report ~/.claude/skills/daily-report  # register the skill
 ```
 
