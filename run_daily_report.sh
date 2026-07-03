@@ -137,14 +137,21 @@ echo "[$(date '+%F %T')] generating daily report for $LABEL (send=$SEND)" >>"$LO
 
 # Is claude's output a real report (vs. an auth/system error it dumped to stdout)?
 # The prompt mandates a "# Daily Report — <DATE>" first line; a themed "- **" bullet is a
-# fallback. We reject the known error lines so they're never saved or DM'd as the report.
+# fallback. Claude's auth/system error dumps (401, "Not logged in", usage limit, overloaded)
+# never produce that title line, so a valid title is a DECISIVE positive signal — accept on it
+# BEFORE scanning for error phrases. Scanning first was a bug: a legit report whose own content
+# mentions an error phrase (e.g. 2026-07-02's first bullet "…halts on backend/API errors", from
+# the fix(tq_ai) commit) landed inside the head-2 window and got false-rejected 3× → FAILED alert.
+# The error scan now only guards the title-LESS fallback path (where an error dump could masquerade).
 is_valid_report() {
   local r="$1"
   [ -n "$r" ] || return 1
+  # Real report: mandated title on line 1 → accept outright (don't let the error scan see the body).
+  printf '%s\n' "$r" | head -1 | grep -q '^# Daily Report' && return 0
+  # No title (fallback): reject known error dumps, then require a themed "- **" bullet.
   if printf '%s\n' "$r" | head -2 | grep -qiE 'invalid authentication|failed to authenticate|api error|usage limit|please run .*login|overloaded|credit balance'; then
     return 1
   fi
-  printf '%s\n' "$r" | head -1 | grep -q '^# Daily Report' && return 0
   printf '%s\n' "$r" | grep -q '^- \*\*' && return 0
   return 1
 }
