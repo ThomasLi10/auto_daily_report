@@ -57,8 +57,8 @@ python3 ~/my/daily_report/gather_calendar.py <YYYY-MM-DD>
 - **少提具体路径/脚本名**：临时诊断脚本、scratch 目录、文件路径（如 `scripts/scratch/.../foo.py`、"scripts 15–23"）**一般不写**，只在特别关键时提；但有意义的模块 / node / 字段名（如 `opt_replay`、`trading_status`、`r_last`）可以保留。
 - **一条 bullet 涉及多件事时用 sub-bullet**：主 bullet 写主题，底下缩进 `  - ` 列具体子项（如一串排查结论、多个改动点）；只有单一一件事就不用 sub-bullet。
 - **日程作为最后一个 bullet**（仅当 gather 退出码 0 且当天有日程）：把当天日历汇总成**一条** bullet，开头加 `📅 `：
-  - **面试**（标题含「面试」/interview）合并成**计数**：`2 interviews`（1 场写 `1 interview`），不写候选人、不写时间。
-  - **会议**写 `Meeting with <人名>`，**人名用英文**（标题里有英文名就用，如 Yutong Weekly→Yutong；否则中文名转拼音，如 邹煜曈→Yutong Zou；没有与会人就用会议名）。gather 输出里 `｜with: 中文名` 给出与会人（已排除你自己）。
+  - **面试**（标题含「面试」/interview，或「一面 / 二面」等面试轮次）合并成**计数**：`2 interviews`（1 场写 `1 interview`），不写候选人、不写时间。
+  - **会议**：**优先用会议本身的名字**——描述性的会议名直接用，翻成英文并去掉多余的结尾 "Meeting"（如「AI+金融周会」→"AI+Finance weekly"、「全员例会」→"All-hands"、"Quant Team Weekly Meeting"→"Quant Team Weekly"、"Quant Team Knowledge Share Meeting"→"Quant Team Knowledge Share"、"Chang 1-on-1 Weekly Meeting"→"1-on-1 with Chang Zhang"）。**已命名的会议别再堆一长串与会人**——名字本身已经够了（只在确有信息量时留 1–2 个人名）。**只有当标题是通用/无意义的**（如裸「会议」/默认名，或标题本身就是 "Meeting with <名>"）才退回写 `Meeting with <人名>`——人名用英文，中文转拼音（邹煜曈→Yutong Zou）。gather 输出里 `｜with: 中文名` 给出与会人（已排除你自己）。
   - 多项用 `; ` 连接，例如 `- 📅 2 interviews; Meeting with Yutong Zou`。
   - 没有日程就**不要这条 bullet**。
 
@@ -84,10 +84,10 @@ python3 ~/my/daily_report/gather_calendar.py <YYYY-MM-DD>
 - **Limit-up/down & participation**: optimizer only blocks fully-locked (status 1), lets pinned-but-open (status 3) through; added 10% participation cap on 10–11am volume to iter1 sim
 - **opt_replay arena node**: replays iter1 weights through the prod sim pipeline (bypasses opt_comb); configs for cn_equity/estu_x/debench
 - **Handoff docs**: elimination chain + next steps for continuation
-- 📅 All-hands with Zhihui Chu & Naive AI; 1-on-1 with Chang Zhang
+- 📅 All-hands with Zhihui Chu & Naive AI; Quant Team Weekly; 1-on-1 with Chang Zhang
 ```
 
-要点：第一条多件事 → 用 sub-bullet；其它一件事 → 一行；不写诊断脚本路径/编号。06-02 那种只有会议的日子末尾是 `- 📅 Meeting with Yutong Zou`。
+要点：第一条多件事 → 用 sub-bullet；其它一件事 → 一行；不写诊断脚本路径/编号。末尾会议优先用会议名（如 `Quant Team Weekly`、`1-on-1 with Chang Zhang`）；只有会议的日子就单一条 `- 📅 <会议名>`，标题通用时才退回 `Meeting with <人名>`。
 
 ## 注意
 

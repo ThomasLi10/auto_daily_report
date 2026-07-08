@@ -193,13 +193,20 @@ Format (follow exactly):
 - Drop non-work chatter (personal questions, concept explainers).
 - If the material has a "Feishu calendar" section WITH events, add ONE final bullet that
   summarizes the day's calendar, prefixed with "📅 ":
-    * Interviews (title contains 面试/interview): COLLAPSE into a count, e.g. "2 interviews"
-      ("1 interview" if one). No candidate names, no times.
-    * Meetings: "Meeting with <people>" — ENGLISH names (use the English name if it's in
-      the title, e.g. "Yutong Weekly"→Yutong; otherwise romanize to pinyin, e.g.
-      邹煜曈→Yutong Zou; if no attendee, use the meeting name). The gather output lists
-      attendees after "｜with:" (your own name already excluded).
-    * Join items with "; ", e.g. "- 📅 2 interviews; Meeting with Yutong Zou".
+    * Interviews (title contains 面试/interview, or an interview round like 一面/二面):
+      COLLAPSE into a count, e.g. "2 interviews" ("1 interview" if one). No candidate
+      names, no times.
+    * Meetings: PREFER the meeting's OWN name when it is descriptive — use it directly,
+      translated to English and trimmed of a redundant trailing "Meeting" (e.g.
+      "AI+金融周会"→"AI+Finance weekly", "全员例会"→"All-hands", "Quant Team Weekly
+      Meeting"→"Quant Team Weekly", "Quant Team Knowledge Share Meeting"→"Quant Team
+      Knowledge Share", "Chang 1-on-1 Weekly Meeting"→"1-on-1 with Chang Zhang"). Don't
+      append a long attendee list to an already-named meeting — the name carries it (keep
+      1–2 attendees only if they add real signal). ONLY when the title is generic/non-
+      descriptive (a bare "会议"/default, or literally "Meeting with <name>") fall back to
+      "Meeting with <people>" — ENGLISH names, romanize to pinyin (邹煜曈→Yutong Zou). The
+      gather output lists attendees after "｜with:" (your own name already excluded).
+    * Join items with "; ", e.g. "- 📅 2 interviews; Quant Team Weekly; 1-on-1 with Chang Zhang".
   If there is no calendar section or it says "(无日程)", OMIT this bullet entirely.
 - Do NOT add a "(N commits)" line or any trailing summary.
 - No blank lines between bullets (tight list).
@@ -213,7 +220,7 @@ Match the BREVITY and shape of this example exactly (terse phrases, not sentence
 - **Limit-up/down & participation**: optimizer blocks only fully-locked (status 1), lets pinned-open (status 3) through; added 10% participation cap (10–11am vol) to iter1 sim
 - **opt_replay arena node**: replays iter1 weights through prod sim (bypasses opt_comb); configs for cn_equity/estu_x/debench
 - **Handoff docs**: elimination chain + next steps
-- 📅 All-hands with Zhihui Chu & Naive AI; 1-on-1 with Chang Zhang
+- 📅 All-hands with Zhihui Chu & Naive AI; Quant Team Weekly; 1-on-1 with Chang Zhang
 EOF
 
 PROMPT="$RULES

@@ -87,8 +87,9 @@ Archived span reports are named `YYYY-MM-DD_YYYY-MM-DD.md` (single days stay `YY
 
 English; a single markdown bullet list (no section headers, no commit count). 3–5 themed
 work bullets (`- **Topic**: …`, max 8), then a final calendar bullet when there are events:
-`- 📅 2 interviews; Meeting with Yutong Zou` (interviews collapsed to a count; meetings as
-"Meeting with <people>" with names romanized to pinyin). See `SKILL.md` for the exact rules.
+`- 📅 2 interviews; Quant Team Weekly; 1-on-1 with Chang Zhang` (interviews collapsed to a
+count; meetings prefer their own name, falling back to "Meeting with <people>" — names
+romanized to pinyin — only when the title is generic). See `SKILL.md` for the exact rules.
 
 Delivered to Feishu as a blue-header interactive card (`Daily Report — <date>`) with the
 markdown rendered — bold Topics, inline `code`, one bullet per line. To paste it into a Feishu
