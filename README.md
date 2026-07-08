@@ -16,6 +16,14 @@ Commits shared between clones are de-duplicated by hash; an unreachable extra us
 skipped with a note (never a crash). Disable extras with a bare `--extra-users`. This is how
 work done under a service account (e.g. `report_hub`) rolls into the same report.
 
+**Automated pipeline sessions are dropped.** Queued automation (e.g. `tq_ai` library/alphas
+mining) runs `claude` in ephemeral per-job scratch checkouts and can spawn hundreds of
+sessions a day — under the primary user too — swamping the report. Sessions whose **cwd**
+matches `DAILY_REPORT_EXCLUDE_CWD_GLOBS` (or `--exclude-cwd`, e.g. `/tmp/tqlib_ro_*
+/tmp/aha_ro_*`) are skipped, keeping only interactive Claude-Max work; the dropped jobs' git
+commits still count. Match only the scratch dirs, not the pipeline's own code dirs. Empty /
+bare `--exclude-cwd` = no filtering.
+
 A small LLM pass (Claude headless) synthesizes the material into themed bullets.
 
 ## Layout
@@ -38,7 +46,7 @@ A small LLM pass (Claude headless) synthesizes the material into themed bullets.
 - `SKILL.md` — the `/daily-report` skill definition (interactive use)
 - `FEISHU_SETUP.md` — calendar (CalDAV) + delivery setup
 - `.feishu_*.json` — **local secrets, gitignored** (see the `.example` files)
-- `daily_report.local` — **local site config, gitignored** (extra service accounts, `OUT_DIR` override; see the `.example`)
+- `daily_report.local` — **local site config, gitignored** (extra service accounts, automated-session `EXCLUDE_CWD_GLOBS`, `OUT_DIR` override; see the `.example`)
 
 ## Usage
 

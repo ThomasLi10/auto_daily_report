@@ -5,6 +5,12 @@
 # read via passwordless `sudo -n -u <user>`. Empty / unset = current user only.
 # DAILY_REPORT_EXTRA_USERS="svc-account-1 svc-account-2"
 
+# Session cwd globs to DROP as automated pipeline jobs (space-separated) — queued, not
+# interactive Claude-Max work. Such jobs run in ephemeral per-job scratch checkouts and can
+# number in the hundreds/day, flooding the report; their git commits still count. Match ONLY
+# the scratch dirs, not the code dirs where you develop the pipeline. Empty = no filtering.
+# DAILY_REPORT_EXCLUDE_CWD_GLOBS="/tmp/tqlib_ro_* /tmp/aha_ro_*"
+
 # Where generated reports + log + cron cursor live.
 # Default: /tq/scratch/<current-user>/daily_report_log
 # OUT_DIR="/tq/scratch/$(id -un)/daily_report_log"

@@ -17,9 +17,10 @@ description: 输入一个日期，结合当天的 git 提交历史和 Claude Cod
 
 ### 1. 收集原料
 
-运行收集脚本（按本地时区过滤，自动发现 `~/code/*` 下的 git repo，并扫描 `~/.claude/projects` 的会话记录）：
+运行收集脚本（按本地时区过滤，自动发现 `~/code/*` 下的 git repo，并扫描 `~/.claude/projects` 的会话记录）。**先加载站点本地配置**（额外账号、要排除的自动化 session cwd），这样交互式生成和 cron 口径一致：
 
 ```bash
+set -a; [ -f ~/my/daily_report/daily_report.local ] && . ~/my/daily_report/daily_report.local; set +a
 python3 ~/my/daily_report/gather_context.py <YYYY-MM-DD>
 ```
 
@@ -92,6 +93,7 @@ python3 ~/my/daily_report/gather_calendar.py <YYYY-MM-DD>
 ## 注意
 
 - **多用户来源**：`gather_context.py` 默认只采集当前用户，但可额外通过 `sudo -n -u <user>` 把**服务账号**的 git 提交（`/home/<user>/code/*`）和 Claude 会话（`/home/<user>/.claude/projects`）一并纳入——例如某服务账号下用 claude 做的 `report_hub` 等工作就能这样进来。默认不纳入任何额外账号，用环境变量 `DAILY_REPORT_EXTRA_USERS="acct1 acct2"`（cron 经 gitignored 的 `daily_report.local` 注入）或 `--extra-users a b` 指定。同一 commit 在两个 clone 里只算一次（按 hash 去重）；sudo 不可用时该来源跳过并打一行 `# NOTE`，不报错。会话/提交会带 `[<account>]` 标签，归类时把它和当前用户的同主题工作**合并**，别因账号不同拆成两条。要改/禁用：`--extra-users a b` / 裸 `--extra-users`。
+- **剔除自动化流水线 session**：排队跑的自动任务（如 tq_ai 的 **library** / **alphas** mining）会在每个 job 的临时 checkout 里起 claude，一天可能几百个，会淹没日报。按 **cwd** 匹配 `DAILY_REPORT_EXCLUDE_CWD_GLOBS`（cron 经 `daily_report.local` 注入，如 `/tmp/tqlib_ro_* /tmp/aha_ro_*`）或 `--exclude-cwd` 把它们剔除，**只保留交互式（Claude-Max）的工作**；这对**所有来源**生效（本人账号下也会跑这些自动任务）。注意只匹配**临时 scratch 目录**，别误伤开发流水线代码本身的目录（如 `.../tq_ai/agent/alphas`）。被剔除的 job 其 **git commit 仍照常计入**（git 单独采集）；剔除时打一行 `# NOTE`。裸 `--exclude-cwd` = 不过滤。
 - **自动化（cron）行为**：`run_daily_report.sh` 无参数时按**中国工作日**门控（`workday.py`，含调休）——工作日才综合，且覆盖「上次报告之后 → 昨天」整段（假期/周末后第一个工作日合并成一份）；非工作日发一条 rest-day 占位指向下个工作日。状态游标 `last_covered` 仅在成功发送后推进。交互式 `/daily-report` **不**受此门控，按用户给的日期/区间直接生成。
 - 会话时间戳是 UTC，脚本已自动转换成本地时区再按日期过滤；git 的 `--since/--until` 用本地时间。两者口径一致。
 - 一天可能有十几个会话，prompt 很多——**抓主题，不要逐条复述**。被中断的 prompt、纯粘贴的终端输出只作背景参考。

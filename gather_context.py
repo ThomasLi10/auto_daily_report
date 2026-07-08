@@ -14,6 +14,13 @@ how work done under a service account (e.g. report_hub) can roll into the report
 Extra-user access degrades gracefully: if sudo is unavailable the source is
 skipped with a note, never a crash.
 
+We keep only INTERACTIVE Claude-Max sessions and drop AUTOMATED pipeline ones, so a
+high-volume automation can't flood the report. Automated jobs are recognized by their
+cwd: they run in ephemeral per-job scratch checkouts (e.g. tq_ai library/alphas mining
+under /tmp/*_ro_*). Match them with DAILY_REPORT_EXCLUDE_CWD_GLOBS / --exclude-cwd; this
+applies to EVERY source (the same automation runs under the primary user too). Those
+jobs' git commits still count. Empty globs = no session filtering.
+
 Usage:
     python3 gather_context.py 2026-06-01                 # single day
     python3 gather_context.py 2026-06-01 2026-06-03      # inclusive date range
@@ -21,9 +28,12 @@ Usage:
     python3 gather_context.py 2026-06-01 --projects-dir ~/.claude/projects
     python3 gather_context.py 2026-06-01 --extra-users svc1 svc2     # fold in extras
     python3 gather_context.py 2026-06-01 --extra-users               # no extras (current user only)
+    python3 gather_context.py 2026-06-01 --exclude-cwd '/tmp/*_ro_*' # drop automated pipeline sessions
+    python3 gather_context.py 2026-06-01 --exclude-cwd               # keep all sessions (no filtering)
 """
 
 import argparse
+import fnmatch
 import glob
 import json
 import os
@@ -38,6 +48,12 @@ DEFAULT_PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 # DAILY_REPORT_EXTRA_USERS="acct1 acct2" (space-separated) to keep site-specific
 # account names out of the source, or override per-run with --extra-users.
 DEFAULT_EXTRA_USERS = os.environ.get("DAILY_REPORT_EXTRA_USERS", "").split()
+# Session cwd globs to DROP as automated pipeline jobs (see module docstring for why). None
+# by default — set DAILY_REPORT_EXCLUDE_CWD_GLOBS="/tmp/tqlib_ro_* /tmp/aha_ro_*" (space-
+# separated) to keep site-specific paths out of the source, or override per-run with
+# --exclude-cwd. Match ONLY the ephemeral per-job scratch dirs, NOT the code dirs where you
+# DEVELOP the pipeline (e.g. .../tq_ai/agent/alphas) — that's real interactive work to keep.
+DEFAULT_EXCLUDE_CWD_GLOBS = os.environ.get("DAILY_REPORT_EXCLUDE_CWD_GLOBS", "").split()
 MAX_PROMPT_CHARS = 400
 
 
@@ -255,14 +271,23 @@ def scan_session(path, lines, start, end):
     }
 
 
-def scan_sessions(projects_dir, start, end, as_user=None):
-    out = []
+def scan_sessions(projects_dir, start, end, as_user=None, exclude_cwd_globs=()):
+    """Scan a projects dir. Sessions whose cwd matches an exclude glob are skipped — these
+    are automated pipeline jobs that run in ephemeral per-job scratch checkouts (e.g. the
+    tq_ai library / alphas mining under /tmp/*_ro_*), NOT interactive Claude-Max work.
+    Their git commits still count (git is harvested separately). Returns (sessions,
+    n_dropped)."""
+    out, n_dropped = [], 0
     for path in list_session_paths(projects_dir, as_user):
         info = scan_session(path, read_session_lines(path, as_user), start, end)
         if info and (info["prompts"] or info["files"] or info["ai_title"]):
+            cwd = info.get("cwd") or ""
+            if exclude_cwd_globs and any(fnmatch.fnmatch(cwd, g) for g in exclude_cwd_globs):
+                n_dropped += 1
+                continue
             info["as_user"] = as_user
             out.append(info)
-    return out
+    return out, n_dropped
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +343,10 @@ def main():
                     help="service/bot accounts to fold in via sudo -u "
                          f"(default: {' '.join(DEFAULT_EXTRA_USERS) or 'none'}; pass "
                          "with no names to disable)")
+    ap.add_argument("--exclude-cwd", nargs="*", default=None,
+                    help="glob(s) for session cwds to DROP as automated pipeline jobs "
+                         f"(default: {' '.join(DEFAULT_EXCLUDE_CWD_GLOBS) or 'none'}; "
+                         "pass with no globs to disable)")
     args = ap.parse_args()
 
     end_str = args.end or args.start
@@ -360,13 +389,27 @@ def main():
         print("  (none)")
 
     # --- sessions ---
+    # Drop automated pipeline sessions (those whose cwd is an ephemeral per-job scratch
+    # checkout, e.g. tq_ai library/alphas under /tmp/*_ro_*) so they don't flood the
+    # report — keep only interactive Claude-Max work. Applies to EVERY source (the same
+    # automation runs under the primary user too). Their git commits still count. The
+    # globs come from DAILY_REPORT_EXCLUDE_CWD_GLOBS / --exclude-cwd; empty = no filtering.
+    exclude_globs = DEFAULT_EXCLUDE_CWD_GLOBS if args.exclude_cwd is None else args.exclude_cwd
     sessions = []
+    auto_dropped = []
     for src in sources:
-        sessions.extend(scan_sessions(src["projects_dir"], start, end, src["as_user"]))
+        found, ndrop = scan_sessions(src["projects_dir"], start, end, src["as_user"],
+                                     exclude_globs)
+        sessions.extend(found)
+        if ndrop:
+            auto_dropped.append((src["as_user"] or "self", ndrop))
     sessions.sort(key=lambda s: (s["ai_title"] or "z").lower())
     print("\n" + "=" * 70)
     print(f"CLAUDE CODE SESSIONS ({len(sessions)} with activity)")
     print("=" * 70)
+    for user, n in auto_dropped:
+        print(f"# NOTE: skipped {n} automated-pipeline session(s) for '{user}' "
+              f"(cwd in excluded scratch dirs); their git commits still count.")
     if not sessions:
         print("  (none)")
     for s in sessions:

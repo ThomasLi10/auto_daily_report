@@ -37,6 +37,10 @@ unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL 2>/dev/null || t
 # override, etc. Keeps machine/account-specific values out of the repo. See the .example.
 [ -f "$SKILL_DIR/daily_report.local" ] && . "$SKILL_DIR/daily_report.local"
 export DAILY_REPORT_EXTRA_USERS="${DAILY_REPORT_EXTRA_USERS:-}"
+# Session cwd globs to drop as automated pipeline jobs (queued tq_ai library/alphas etc.),
+# so hundreds of per-job scratch sessions don't flood the report. gather_context.py reads
+# this; empty = no session filtering. See daily_report.local(.example).
+export DAILY_REPORT_EXCLUDE_CWD_GLOBS="${DAILY_REPORT_EXCLUDE_CWD_GLOBS:-}"
 # Reports + log + cron cursor live in scratch under the current user (NOT in the repo).
 OUT_DIR="${OUT_DIR:-/tq/scratch/$(id -un)/daily_report_log}"
 LOG="$OUT_DIR/run_daily.log"
