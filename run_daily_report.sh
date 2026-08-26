@@ -239,11 +239,20 @@ say "synthesizing with claude (up to 3 tries, ~30s each, no output until done)�
 # an overnight-expired OAuth token will refresh it and then succeed; retries cover transient
 # hiccups. Critically, a non-empty error line (e.g. the 401 auth error) is NOT a valid report,
 # so it can never again be archived and DM'd to the user.
+# The report must be ENGLISH. Saying so in the prompt is not enough: a user-level output
+# style (~/.claude/settings.json "outputStyle", e.g. a Chinese-writing one) lands in the
+# SYSTEM prompt and outranks it — that is how the 2026-08-25 report came out in Chinese.
+# So reset the style for this call and repeat the language rule at system-prompt altitude.
+LANG_RULE='You MUST write the daily report in English. Even when the gathered material is in
+Chinese, the report is in English — never answer in Chinese.
+Keep code symbols, file paths and command lines verbatim.'
+
 REPORT=""
 LASTOUT=""
 for attempt in 1 2 3; do
   set +e
-  LASTOUT="$(printf '%s' "$PROMPT" | "$CLAUDE" -p --model sonnet 2>>"$LOG")"
+  LASTOUT="$(printf '%s' "$PROMPT" | "$CLAUDE" -p --model sonnet \
+    --append-system-prompt "$LANG_RULE" --settings '{"outputStyle":"default"}' 2>>"$LOG")"
   rc=$?
   set -e
   if [ "$rc" -eq 0 ] && is_valid_report "$LASTOUT"; then
