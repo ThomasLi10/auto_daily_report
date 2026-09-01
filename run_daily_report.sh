@@ -160,6 +160,18 @@ is_valid_report() {
   return 1
 }
 
+# The report must be ENGLISH, and the LANG_RULE handed to the claude call is not a
+# guarantee: sonnet occasionally drifts into Chinese when the gathered material is
+# Chinese-heavy (that is what produced the 2026-08-31 report). So CHECK the output and retry.
+# A real English report carries at most a stray proper noun, so allow a handful of CJK
+# ideographs; a Chinese report has hundreds.
+MAX_CJK=15
+is_english_report() {
+  local n
+  n="$(printf '%s' "$1" | grep -oP '[\x{4e00}-\x{9fff}]' | wc -l)"
+  [ "$n" -le "$MAX_CJK" ]
+}
+
 # 1. gather raw material (git + Claude sessions + Feishu calendar) over the span
 say "$LABEL: gathering git + Claude sessions + Feishu calendar…"
 MATERIAL="$("$PY" "$SKILL_DIR/gather_context.py" "$START" "$END"; echo; "$PY" "$SKILL_DIR/gather_calendar.py" "$START" "$END" 2>>"$LOG" || true)"
@@ -249,6 +261,7 @@ Keep code symbols, file paths and command lines verbatim.'
 
 REPORT=""
 LASTOUT=""
+FALLBACK=""
 for attempt in 1 2 3; do
   set +e
   LASTOUT="$(printf '%s' "$PROMPT" | "$CLAUDE" -p --model sonnet \
@@ -256,13 +269,29 @@ for attempt in 1 2 3; do
   rc=$?
   set -e
   if [ "$rc" -eq 0 ] && is_valid_report "$LASTOUT"; then
-    REPORT="$LASTOUT"
-    break
+    if is_english_report "$LASTOUT"; then
+      REPORT="$LASTOUT"
+      break
+    fi
+    # Valid report, wrong language. Keep the first one as a fallback (a Chinese report beats
+    # no report) and retry for an English one.
+    [ -n "$FALLBACK" ] || FALLBACK="$LASTOUT"
+    echo "[$(date '+%F %T')] claude attempt $attempt came back in Chinese — retrying" >>"$LOG"
+    say "attempt $attempt came back in Chinese — retrying…"
+    sleep 5
+    continue
   fi
   echo "[$(date '+%F %T')] claude attempt $attempt failed (rc=$rc): $(printf '%s' "$LASTOUT" | head -1)" >>"$LOG"
   say "claude attempt $attempt failed (rc=$rc) — retrying…"
   sleep 5
 done
+
+# All three tries drifted to Chinese: send the Chinese one rather than nothing, but say so.
+if [ -z "$REPORT" ] && [ -n "$FALLBACK" ]; then
+  REPORT="$FALLBACK"
+  echo "[$(date '+%F %T')] WARN: all 3 attempts came back in Chinese; sending the Chinese report" >>"$LOG"
+  say "WARN: could not get an English report in 3 tries — sending the Chinese one"
+fi
 
 if [ -z "$REPORT" ]; then
   ERRLINE="$(printf '%s' "$LASTOUT" | head -1)"
