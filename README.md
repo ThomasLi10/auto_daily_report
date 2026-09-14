@@ -16,6 +16,12 @@ Commits shared between clones are de-duplicated by hash; an unreachable extra us
 skipped with a note (never a crash). Disable extras with a bare `--extra-users`. This is how
 work done under a service account (e.g. `report_hub`) rolls into the same report.
 
+**Remote machines (sessions only).** Claude sessions on other hosts — e.g. Claude Desktop on
+a Windows box reached over msys2 bash — fold in via `DAILY_REPORT_SSH_HOSTS="host1 host2"`
+(ssh aliases) or `--ssh-hosts`. Each host is one `ssh -o BatchMode=yes` call that streams
+back `~/.claude/projects/*/*.jsonl` modified since the window start; no git is read there.
+Sessions carry a `[<host>]` tag; an unreachable host is skipped with a note.
+
 **Automated pipeline sessions are dropped.** Queued automation (e.g. `tq_ai` library/alphas
 mining) runs `claude` in ephemeral per-job scratch checkouts and can spawn hundreds of
 sessions a day — under the primary user too — swamping the report. Sessions whose **cwd**

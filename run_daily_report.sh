@@ -41,6 +41,8 @@ export DAILY_REPORT_EXTRA_USERS="${DAILY_REPORT_EXTRA_USERS:-}"
 # so hundreds of per-job scratch sessions don't flood the report. gather_context.py reads
 # this; empty = no session filtering. See daily_report.local(.example).
 export DAILY_REPORT_EXCLUDE_CWD_GLOBS="${DAILY_REPORT_EXCLUDE_CWD_GLOBS:-}"
+# ssh host aliases (e.g. a Windows box) whose Claude sessions fold in too; empty = none.
+export DAILY_REPORT_SSH_HOSTS="${DAILY_REPORT_SSH_HOSTS:-}"
 # Reports + log + cron cursor live in scratch under the current user (NOT in the repo).
 OUT_DIR="${OUT_DIR:-/tq/scratch/$(id -un)/daily_report_log}"
 LOG="$OUT_DIR/run_daily.log"

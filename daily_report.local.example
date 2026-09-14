@@ -11,6 +11,11 @@
 # the scratch dirs, not the code dirs where you develop the pipeline. Empty = no filtering.
 # DAILY_REPORT_EXCLUDE_CWD_GLOBS="/tmp/tqlib_ro_* /tmp/aha_ro_*"
 
+# ssh host aliases whose ~/.claude/projects sessions fold in (space-separated) — e.g. a
+# Windows box running Claude Desktop, reached over msys2 bash. Sessions only, no git. Needs
+# key auth that works non-interactively (ssh -o BatchMode=yes). Empty / unset = none.
+# DAILY_REPORT_SSH_HOSTS="win-host-1 win-host-2"
+
 # Where generated reports + log + cron cursor live.
 # Default: /tq/scratch/<current-user>/daily_report_log
 # OUT_DIR="/tq/scratch/$(id -un)/daily_report_log"

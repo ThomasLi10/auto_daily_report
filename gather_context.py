@@ -54,6 +54,10 @@ DEFAULT_EXTRA_USERS = os.environ.get("DAILY_REPORT_EXTRA_USERS", "").split()
 # --exclude-cwd. Match ONLY the ephemeral per-job scratch dirs, NOT the code dirs where you
 # DEVELOP the pipeline (e.g. .../tq_ai/agent/alphas) — that's real interactive work to keep.
 DEFAULT_EXCLUDE_CWD_GLOBS = os.environ.get("DAILY_REPORT_EXCLUDE_CWD_GLOBS", "").split()
+# ssh host aliases whose ~/.claude/projects sessions fold in too (e.g. a Windows box running
+# msys2 bash). Sessions only — no git. Needs non-interactive key auth (BatchMode). None by
+# default — set DAILY_REPORT_SSH_HOSTS="host1 host2" or override per-run with --ssh-hosts.
+DEFAULT_SSH_HOSTS = os.environ.get("DAILY_REPORT_SSH_HOSTS", "").split()
 MAX_PROMPT_CHARS = 400
 
 
@@ -267,25 +271,72 @@ def scan_session(path, lines, start, end):
         "branch": branch,
         "prompts": prompts,
         "files": files,
-        "as_user": None,  # filled in by caller
+        "source": None,  # filled in by caller
     }
 
 
-def scan_sessions(projects_dir, start, end, as_user=None, exclude_cwd_globs=()):
-    """Scan a projects dir. Sessions whose cwd matches an exclude glob are skipped — these
-    are automated pipeline jobs that run in ephemeral per-job scratch checkouts (e.g. the
-    tq_ai library / alphas mining under /tmp/*_ro_*), NOT interactive Claude-Max work.
+def local_session_files(projects_dir, as_user=None):
+    """Yield (path, lines) for every top-level session under a local projects dir."""
+    for path in list_session_paths(projects_dir, as_user):
+        yield path, read_session_lines(path, as_user)
+
+
+REMOTE_FILE_MARK = "@@DAILY_REPORT_FILE "
+REMOTE_OK_MARK = "@@DAILY_REPORT_OK"
+REMOTE_MTIME_SLACK_SECS = 60  # clock skew between hosts + coarse mtime granularity
+
+
+def remote_session_files(host, since):
+    """Fetch session files from an ssh host in ONE connection. Returns list of (path, lines),
+    or None if the host is unreachable. Only files modified at/after `since` are sent — a
+    session with activity in the window must have been written then, and this keeps
+    multi-MB old transcripts off the wire. The remote side needs only a POSIX shell + GNU
+    find/cat (msys2 bash on Windows qualifies); its non-interactive PATH may lack /usr/bin,
+    hence the export. Session jsonl lines start with '{', so the marker can't collide."""
+    script = (
+        "export PATH=/usr/bin:/bin:$PATH; "
+        f"echo {REMOTE_OK_MARK}; "
+        'find "$HOME/.claude/projects" -mindepth 2 -maxdepth 2 -name "*.jsonl" '
+        f"-newermt @{int(since.timestamp()) - REMOTE_MTIME_SLACK_SECS} 2>/dev/null | "
+        f'while IFS= read -r f; do printf "\\n{REMOTE_FILE_MARK}%s\\n" "$f"; cat "$f"; done'
+    )
+    try:
+        r = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, script],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = r.stdout.splitlines()
+    if REMOTE_OK_MARK not in lines[:5]:
+        return None
+    files, path, buf = [], None, []
+    for ln in lines:
+        if ln.startswith(REMOTE_FILE_MARK):
+            if path:
+                files.append((path, buf))
+            path, buf = ln[len(REMOTE_FILE_MARK):], []
+        elif path:
+            buf.append(ln)
+    if path:
+        files.append((path, buf))
+    return files
+
+
+def scan_sessions(session_files, start, end, label=None, exclude_cwd_globs=()):
+    """Scan (path, lines) pairs. Sessions whose cwd matches an exclude glob are skipped —
+    these are automated pipeline jobs that run in ephemeral per-job scratch checkouts (e.g.
+    the tq_ai library / alphas mining under /tmp/*_ro_*), NOT interactive Claude-Max work.
     Their git commits still count (git is harvested separately). Returns (sessions,
     n_dropped)."""
     out, n_dropped = [], 0
-    for path in list_session_paths(projects_dir, as_user):
-        info = scan_session(path, read_session_lines(path, as_user), start, end)
+    for path, lines in session_files:
+        info = scan_session(path, lines, start, end)
         if info and (info["prompts"] or info["files"] or info["ai_title"]):
             cwd = info.get("cwd") or ""
             if exclude_cwd_globs and any(fnmatch.fnmatch(cwd, g) for g in exclude_cwd_globs):
                 n_dropped += 1
                 continue
-            info["as_user"] = as_user
+            info["source"] = label
             out.append(info)
     return out, n_dropped
 
@@ -294,9 +345,12 @@ def scan_sessions(projects_dir, start, end, as_user=None, exclude_cwd_globs=()):
 # Sources
 # ---------------------------------------------------------------------------
 def build_sources(args):
-    """Ordered list of {as_user, repos, projects_dir} to harvest. Primary first."""
+    """Ordered list of {label, as_user, ssh_host, repos, projects_dir} to harvest. Primary
+    first. `label` tags output lines (None = primary, no tag)."""
     primary = {
+        "label": None,
         "as_user": None,
+        "ssh_host": None,
         "repos": args.repos if args.repos is not None
         else discover_repos(DEFAULT_CODE_GLOBS),
         "projects_dir": args.projects_dir,
@@ -309,10 +363,24 @@ def build_sources(args):
         home = f"/home/{user}"
         ok = sudo_available(user)
         sources.append({
+            "label": user,
             "as_user": user,
+            "ssh_host": None,
             "repos": discover_repos([f"{home}/code/*"], as_user=user) if ok else [],
             "projects_dir": f"{home}/.claude/projects",
             "available": ok,
+        })
+
+    # ssh hosts contribute Claude sessions only (no git); reachability is known after fetch.
+    hosts = DEFAULT_SSH_HOSTS if args.ssh_hosts is None else args.ssh_hosts
+    for host in hosts:
+        sources.append({
+            "label": host,
+            "as_user": None,
+            "ssh_host": host,
+            "repos": [],
+            "projects_dir": None,
+            "available": True,
         })
     return sources
 
@@ -347,6 +415,10 @@ def main():
                     help="glob(s) for session cwds to DROP as automated pipeline jobs "
                          f"(default: {' '.join(DEFAULT_EXCLUDE_CWD_GLOBS) or 'none'}; "
                          "pass with no globs to disable)")
+    ap.add_argument("--ssh-hosts", nargs="*", default=None,
+                    help="ssh host aliases whose Claude sessions fold in "
+                         f"(default: {' '.join(DEFAULT_SSH_HOSTS) or 'none'}; pass with no "
+                         "hosts to disable)")
     args = ap.parse_args()
 
     end_str = args.end or args.start
@@ -381,7 +453,7 @@ def main():
                 continue
             any_commit = True
             seen_hashes.update(c[1] for c in commits)
-            tag = f"  [{src['as_user']}]" if src["as_user"] else ""
+            tag = f"  [{src['label']}]" if src["label"] else ""
             print(f"\n## {shorten_home(repo)}{tag}")
             for t, h, subj in commits:
                 print(f"  {t}  {h}  {subj}")
@@ -397,23 +469,33 @@ def main():
     exclude_globs = DEFAULT_EXCLUDE_CWD_GLOBS if args.exclude_cwd is None else args.exclude_cwd
     sessions = []
     auto_dropped = []
+    unreachable = []
     for src in sources:
-        found, ndrop = scan_sessions(src["projects_dir"], start, end, src["as_user"],
-                                     exclude_globs)
+        if src["ssh_host"]:
+            files = remote_session_files(src["ssh_host"], start)
+            if files is None:
+                unreachable.append(src["ssh_host"])
+                continue
+        else:
+            files = local_session_files(src["projects_dir"], src["as_user"])
+        found, ndrop = scan_sessions(files, start, end, src["label"], exclude_globs)
         sessions.extend(found)
         if ndrop:
-            auto_dropped.append((src["as_user"] or "self", ndrop))
+            auto_dropped.append((src["label"] or "self", ndrop))
     sessions.sort(key=lambda s: (s["ai_title"] or "z").lower())
     print("\n" + "=" * 70)
     print(f"CLAUDE CODE SESSIONS ({len(sessions)} with activity)")
     print("=" * 70)
+    for host in unreachable:
+        print(f"# NOTE: ssh host '{host}' unreachable (ssh -o BatchMode=yes failed) — "
+              "its sessions skipped.")
     for user, n in auto_dropped:
         print(f"# NOTE: skipped {n} automated-pipeline session(s) for '{user}' "
               f"(cwd in excluded scratch dirs); their git commits still count.")
     if not sessions:
         print("  (none)")
     for s in sessions:
-        tag = f"  [{s['as_user']}]" if s["as_user"] else ""
+        tag = f"  [{s['source']}]" if s["source"] else ""
         print(f"\n## {s['ai_title'] or '(untitled session)'}{tag}")
         loc = shorten_home(s["cwd"] or "")
         if loc:
