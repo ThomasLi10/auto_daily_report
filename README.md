@@ -20,7 +20,8 @@ work done under a service account (e.g. `report_hub`) rolls into the same report
 a Windows box reached over msys2 bash — fold in via `DAILY_REPORT_SSH_HOSTS="host1 host2"`
 (ssh aliases) or `--ssh-hosts`. Each host is one `ssh -o BatchMode=yes` call that streams
 back `~/.claude/projects/*/*.jsonl` modified since the window start; no git is read there.
-Sessions carry a `[<host>]` tag; an unreachable host is skipped with a note.
+Sessions carry a `[<host>]` tag; an unreachable host is skipped with a note. Desktop session
+names (`custom-title`) are used as titles, ignoring the `New session` placeholder.
 
 **Automated pipeline sessions are dropped.** Queued automation (e.g. `tq_ai` library/alphas
 mining) runs `claude` in ephemeral per-job scratch checkouts and can spawn hundreds of

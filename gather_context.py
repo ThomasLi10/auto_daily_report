@@ -221,7 +221,7 @@ def read_session_lines(path, as_user=None):
 
 def scan_session(path, lines, start, end):
     """Return dict of in-window activity for one session's lines, or None if none."""
-    ai_title = None
+    ai_title = custom_title = None
     prompts, files = [], []
     cwd = branch = None
     has_window_activity = False
@@ -235,6 +235,11 @@ def scan_session(path, lines, start, end):
 
         if typ == "ai-title":
             ai_title = o.get("aiTitle") or ai_title
+            continue
+        if typ == "custom-title":  # Claude Desktop sessions name themselves this way
+            t = o.get("customTitle")
+            if t and t != "New session":  # Desktop's placeholder until renamed
+                custom_title = t
             continue
 
         ts = parse_ts(o.get("timestamp"))
@@ -266,7 +271,7 @@ def scan_session(path, lines, start, end):
         return None
     return {
         "session": os.path.splitext(os.path.basename(path))[0],
-        "ai_title": ai_title,
+        "ai_title": custom_title or ai_title,
         "cwd": cwd,
         "branch": branch,
         "prompts": prompts,
