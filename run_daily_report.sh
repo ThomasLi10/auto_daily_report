@@ -16,7 +16,12 @@ set -euo pipefail
 # Code lives in the repo; generated reports + log live in scratch (NOT in the repo).
 SKILL_DIR="$HOME/my/daily_report"
 PY="/3rd/anaconda3/bin/python3"
-CLAUDE="$HOME/.nvm/versions/node/v22.22.0/bin/claude"
+# claude binaries to try, in order. The nvm one is an npm global install that any long-running
+# interactive `claude` keeps auto-updating (`npm install -g`, every ~15 min, even to the same
+# version); npm deletes the package before re-adding it, so the path can vanish for seconds to
+# minutes and a cron run in that window dies with rc=127. The cluster-shared install has
+# auto-update disabled and upgrades by an atomic symlink flip, so it is the fallback.
+CLAUDE_CANDIDATES=("$HOME/.nvm/versions/node/v22.22.0/bin/claude" /tq/common/ai-tools/bin/claude)
 # cron has a bare PATH; make sure node (for claude) and basic tools are reachable
 export PATH="$HOME/.nvm/versions/node/v22.22.0/bin:/3rd/anaconda3/bin:/usr/local/bin:/usr/bin:/bin"
 # claude CLI reaches api.anthropic.com only via the corp proxy (without it: "403 Request
@@ -261,10 +266,30 @@ LANG_RULE='You MUST write the daily report in English. Even when the gathered ma
 Chinese, the report is in English — never answer in Chinese.
 Keep code symbols, file paths and command lines verbatim.'
 
+# First candidate that exists right now, waiting up to ~5 min for an in-flight reinstall to
+# finish. Prints the path; prints nothing if none showed up.
+pick_claude() {
+  local c _
+  for _ in $(seq 30); do
+    for c in "${CLAUDE_CANDIDATES[@]}"; do
+      [ -x "$c" ] && { printf '%s' "$c"; return 0; }
+    done
+    sleep 10
+  done
+}
+
 REPORT=""
 LASTOUT=""
 FALLBACK=""
+rc=0
 for attempt in 1 2 3; do
+  CLAUDE="$(pick_claude)"
+  if [ -z "$CLAUDE" ]; then
+    rc=127
+    LASTOUT="claude binary not found: ${CLAUDE_CANDIDATES[*]}"
+    echo "[$(date '+%F %T')] claude attempt $attempt failed: $LASTOUT" >>"$LOG"
+    continue
+  fi
   set +e
   LASTOUT="$(printf '%s' "$PROMPT" | "$CLAUDE" -p --model sonnet \
     --append-system-prompt "$LANG_RULE" --settings '{"outputStyle":"default"}' 2>>"$LOG")"
@@ -283,7 +308,7 @@ for attempt in 1 2 3; do
     sleep 5
     continue
   fi
-  echo "[$(date '+%F %T')] claude attempt $attempt failed (rc=$rc): $(printf '%s' "$LASTOUT" | head -1)" >>"$LOG"
+  echo "[$(date '+%F %T')] claude attempt $attempt failed (rc=$rc, $CLAUDE): $(printf '%s' "$LASTOUT" | head -1)" >>"$LOG"
   say "claude attempt $attempt failed (rc=$rc) — retrying…"
   sleep 5
 done
@@ -301,9 +326,14 @@ if [ -z "$REPORT" ]; then
   say "ERROR: claude produced no valid report (check proxy/auth) — see $LOG"
   # Notify the user that generation FAILED, instead of silently DMing the raw error as "today's report".
   if [ "$SEND" = "1" ]; then
+    if [ "$rc" -eq 127 ]; then
+      HINT="rc=127: the claude binary was missing or not executable (e.g. mid npm reinstall) — not an auth problem. Check \`$LOG\`."
+    else
+      HINT="rc=$rc. Often a Claude OAuth issue: run \`claude\` once interactively to refresh login, then check \`$LOG\`."
+    fi
     printf '%s' "- Claude synthesis returned no valid report after 3 attempts.
 - Last output: \`${ERRLINE:-<empty>}\`
-- Usually a Claude OAuth issue: run \`claude\` once interactively to refresh login, then check \`$LOG\`." \
+- $HINT" \
       | "$PY" "$SKILL_DIR/send_feishu.py" --title "⚠️ Daily Report FAILED — $LABEL" >>"$LOG" 2>&1 || true
   fi
   exit 1
